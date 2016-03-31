@@ -1,0 +1,391 @@
+---
+title: "Experiment 2 All 3"
+author: "Stas Sajin and Julie Gregg"
+date: "March 31, 2016"
+output: html_document
+---
+
+#Synopsis
+The aim of this document is to provide all the analyses for Experiment 2 Overlap all 3. In this experiment, participants were presented with displays of 4 words, among which were the target, a high orthographic competitor, a low orthographic competitor, and a distractor. The structure of the document will be as follows:
+
+1. Data Cleaning and Pre-processing
+
+2. Exploratory Analyses
+
+3. Growth Curve Analysis
+
+4. Graphs
+
+
+####*Libraries*
+Load the required libraries 
+```{r, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(dplyr)
+library(parallel)
+library(doParallel)
+library(tidyr)
+library(gridExtra)
+library(caret)
+```
+
+####*Data Loading*
+First, I load the data file indicating the trials that were removed for each subject.
+
+```{r}
+deletedTrials<-read.csv("deleted.csv")
+```
+
+Now I load up the csv files with Exp1 data. There are 4 files (Exp2Part1 and Exp2Part2, Exp2Part3 and sub 11spe2). Not all colums in those files are required. Only the following colums will be loaded in R, so as to preserve memory space. The colums are: RECORDING_SESSION_LABEL, IA_FIRST_RUN_START_TIME, IA_FIRST_RUN_START_TIME, IA_FIRST_RUN_END_TIME, IA_SECOND_RUN_START_TIME, IA_SECOND_RUN_END_TIME, IA_THIRD_RUN_START_TIME, IA_THIRD_RUN_END_TIME, IA_LABEL, RESPONSE_ACC, IA_DWELL_TIME, TRIAL_INDEX, target, RESPONSE_RT,trialtype,target, list, oldnewitem
+
+```{r}
+Part1 <- read.csv("Exp2Part1.csv", na.strings = c("."))[,c('RECORDING_SESSION_LABEL', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_END_TIME', 'IA_SECOND_RUN_START_TIME', 'IA_SECOND_RUN_END_TIME', 'IA_THIRD_RUN_START_TIME', 'IA_THIRD_RUN_END_TIME', 'IA_LABEL', 'RESPONSE_ACC', 'IA_DWELL_TIME', 'TRIAL_INDEX', 'target', 'RESPONSE_RT', 'trialtype','oldnewitem', 'MOUSE_TIME','DISPLAY_TIME')]
+
+#now load up part 2
+Part2 <- read.csv("Exp2Part2.csv", na.strings = c("."))[,c('RECORDING_SESSION_LABEL', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_END_TIME', 'IA_SECOND_RUN_START_TIME', 'IA_SECOND_RUN_END_TIME', 'IA_THIRD_RUN_START_TIME', 'IA_THIRD_RUN_END_TIME', 'IA_LABEL', 'RESPONSE_ACC', 'IA_DWELL_TIME', 'TRIAL_INDEX', 'target', 'RESPONSE_RT', 'trialtype','oldnewitem', 'MOUSE_TIME','DISPLAY_TIME')]
+
+Part3 <- read.csv("Exp2Part3.csv", na.strings = c("."))[,c('RECORDING_SESSION_LABEL', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_END_TIME', 'IA_SECOND_RUN_START_TIME', 'IA_SECOND_RUN_END_TIME', 'IA_THIRD_RUN_START_TIME', 'IA_THIRD_RUN_END_TIME', 'IA_LABEL', 'RESPONSE_ACC', 'IA_DWELL_TIME', 'TRIAL_INDEX', 'target', 'RESPONSE_RT', 'trialtype','oldnewitem', 'MOUSE_TIME','DISPLAY_TIME')]
+
+#combine part 1 and part 2 into one dataframe
+EyeData<-rbind(Part1, Part2, Part3)
+```
+
+#*Data Cleaning and Pre-Processing*
+
+Right now we have a dataset with all the subjects that took part in Experiment 2. In the code below, I perform some preprocessing that aims to do the following: Remove bad trials (e.g., trials with a lot of off-screen fixations or trials in which the fixations don't start at the center of the screen or trials in which the tracking of the eye was not very good. The decision about which trials should be removed was done by two graduate students, Stas and Julie.) The deleted trials can be found in the deletedTrials file. 
+
+```{r}
+#this part of the code is not very effective; need to figure out later how to optimize it.
+EyeData<-EyeData[!c(EyeData$RECORDING_SESSION_LABEL=="17spe2" & EyeData$TRIAL_INDEX==45),]
+EyeData<-EyeData[!c(EyeData$RECORDING_SESSION_LABEL=="15spe2" & EyeData$TRIAL_INDEX==85),]
+EyeData<-EyeData[!c(EyeData$RECORDING_SESSION_LABEL=="9sre2" & EyeData$TRIAL_INDEX==21),]
+EyeData<-EyeData[!c(EyeData$RECORDING_SESSION_LABEL=="1tle2" & EyeData$TRIAL_INDEX==69),]
+EyeData<-EyeData[!c(EyeData$RECORDING_SESSION_LABEL=="9spe2" & EyeData$TRIAL_INDEX==18),]
+20/12652
+```
+
+Only 5 trials have been deleted, which constitutes less than .158% of the total number of trials. 
+
+In the code below, I transform the NAs to zero, calculate the RT from the onset of the word display till the mouse click time is made.
+
+```{r}
+
+#change all the NAs to zeros
+EyeData[is.na(EyeData)] <- 0
+#Calculate RT from the display onset until the mouse click is made
+EyeData$RESPONSE_RT<-EyeData$MOUSE_TIME-EyeData$DISPLAY_TIME
+#check the dimentions of the dataset
+dim(EyeData)
+#remove the MOUSE_TIME and DISPLAY_TIME variables
+EyeData<-EyeData %>% select (1:16)
+
+#rename the RECORDING_SESSION_LABEL into Subject
+colnames(EyeData)[1] <- "Subject"
+#examine colum names
+names(EyeData)
+```
+
+Examine the structure of the dataframe
+```{r}
+str(EyeData)
+```
+
+Subset the experimental trials. This will remove all other trialtypes, such as FillerRel, FillerUnrel and Practice trials
+```{r}
+EyeData <- EyeData %>% filter(trialtype=="Exp")
+```
+
+Check subject accuracy
+```{r}
+SubjectAccuracy<- EyeData %>% group_by(Subject) %>%
+    summarise(MeanAccuracy=mean(RESPONSE_ACC)) %>% 
+    arrange(MeanAccuracy)
+SubjectAccuracy
+mean(SubjectAccuracy$MeanAccuracy)
+```
+
+Subject accuracy is very high. Allmost all the subjects have 100% accuracy. Only 4 participants have a few incorrect trials. One subject however has relatively low accuracy (.89)
+
+Remove trials with incorrect accuracy
+```{r}
+CorrectEyeData<-EyeData %>% filter(RESPONSE_ACC==1)
+#number of rows deleted
+nrow(EyeData)-nrow(CorrectEyeData) #28 rows get deleted, which corresponds to 7 incorrect trials
+28/3868 #.72% of experimental trials
+```
+
+Set up the start time and the end time dummy-coding of each run in the interest area. This creates colums where if a fixation exists during a run, then the run gets 1 (exists) or if there is no fixation in the IA during a run, then the coding is 0 (not exist)
+```{r}
+CorrectEyeData$Fststart <- ifelse(as.numeric(as.character(CorrectEyeData$IA_FIRST_RUN_START_TIME)) > 0, as.numeric(as.character(CorrectEyeData$IA_FIRST_RUN_START_TIME)), 0) 
+CorrectEyeData$Fstend <- ifelse(as.numeric(as.character(CorrectEyeData$IA_FIRST_RUN_START_TIME)) > 0, as.numeric(as.character(CorrectEyeData$IA_FIRST_RUN_END_TIME)), 0)
+CorrectEyeData$Secstart <- ifelse(as.numeric(as.character(CorrectEyeData$IA_SECOND_RUN_START_TIME)) > 0, as.numeric(as.character(CorrectEyeData$IA_SECOND_RUN_START_TIME)), 0)
+CorrectEyeData$Secend <- ifelse(as.numeric(as.character(CorrectEyeData$IA_SECOND_RUN_START_TIME)) > 0, as.numeric(as.character(CorrectEyeData$IA_SECOND_RUN_END_TIME)), 0)
+CorrectEyeData$Thirdstart <- ifelse(as.numeric(as.character(CorrectEyeData$IA_THIRD_RUN_START_TIME)) > 0, as.numeric(as.character(CorrectEyeData$IA_THIRD_RUN_START_TIME)), 0)
+CorrectEyeData$Thirdend <- ifelse(as.numeric(as.character(CorrectEyeData$IA_THIRD_RUN_START_TIME)) > 0, as.numeric(as.character(CorrectEyeData$IA_THIRD_RUN_END_TIME)), 0)
+```
+
+Generate time bins from time 0 to time 6000 in 25 ms bins and assign them to the dataset
+```{r}
+time <- seq(0, 6000, by=25)
+tmatrix <- matrix(nrow=nrow(CorrectEyeData), ncol=length(time))
+dim(tmatrix)
+```
+
+Generate time vectors for each row and column for first, second, and third pass viewings 
+so that viewing periods receive a viewing probability value of 1 
+
+```{r, warning=FALSE, cache=TRUE}
+registerDoParallel(3)
+for(i in 1:nrow(tmatrix)) {
+for(j in 1:length(time)) {
+
+tmatrix[i,j] <-  ifelse(CorrectEyeData$Fststart[i] < time[j] & 
+                CorrectEyeData$Fstend[i] > time[j] |CorrectEyeData$Secstart[i] <
+                time[j] & CorrectEyeData$Secend[i] > time[j] | CorrectEyeData$Thirdstart[i] 
+                < time[j] & CorrectEyeData$Thirdend[i]>time[j], 1,0)
+} 
+}
+```
+
+Combine the CleanEyeData with the time matrix
+```{r}
+CleanData <- cbind(CorrectEyeData, data.frame(tmatrix))
+```
+
+Assign time values to time bin columns
+```{r}
+colnames(CleanData)[23:263] <- seq(0, 6000, by=25)
+```
+
+Subset the dataset with only the necessary colums and remove anything in the memory that might be a memory hog
+```{r}
+CleanData <- CleanData[, -c(2:8,10,11,12,13,14, 17:22)]
+```
+
+Put the data in long-format and then calculate the proportion for each time bin for each subject
+```{r}
+CleanData<- CleanData %>% gather(time,value,5:245)
+#find proportion for each interest area for each subject
+CleanDataProb<-CleanData %>% group_by(Subject,IA_LABEL,time) %>%
+    summarise(Prob=mean(value))
+CleanDataProb$time<-as.numeric(as.character(CleanDataProb$time))
+```
+
+
+##**Exploratory Graphs**
+The aim of this section is to explore pattern in the data without commiting to any formal modeling. 
+
+which Competitor is the stronger one?
+
+```{r}
+#subset the required dataset by averaging over subjects; find the usual
+OnlySubjects<-CleanData %>%
+    group_by(IA_LABEL, time) %>%
+    summarise(n=n(),Prob=mean(value),sd=sd(value)) %>%
+    mutate(se=sd/sqrt(n), LCI=Prob+qnorm(0.025)*se, UCI=Prob+qnorm(0.975)*se)
+OnlySubjects$time<-as.numeric(as.character(OnlySubjects$time))
+
+levels(OnlySubjects$IA_LABEL) <- list(Target="TARGET_IA ", `High Competitor`="CompetitorHigh ", `Low Competitor`="CompetitorLow ", `Distractor`="UNREL2_IA ")
+
+colnames(OnlySubjects)[1]<-"Interest Area"
+```
+
+```{r, warning=FALSE, message=FALSE, cache=TRUE}
+#plot for time 0 to time 6000
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+g1<-ggplot(OnlySubjects, aes(x=time, y=Prob, color=`Interest Area`, shape=`Interest Area`)) +
+    geom_point(size=3) +
+    geom_errorbar(aes(ymin=LCI, ymax=UCI)) +
+    scale_x_continuous(breaks=seq(0,6000,500), limits=c(0,6000), name="time from trial onset (ms)")+
+    geom_vline(xintercept = 1800)+
+    geom_vline(xintercept = 3200)+theme_bw()+
+    scale_fill_manual(values=cbPalette)+scale_colour_manual(values=cbPalette)+
+    scale_y_continuous(name="Fixation Proportion")+
+    theme(legend.text = element_text(size = 12))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(axis.title.x = element_text(face="bold", size=15), axis.text.x  = element_text(size=10))+
+    theme(axis.title.y = element_text(face="bold", size=15), axis.text.y  = element_text(size=10))+
+    theme(strip.text.x = element_text(size=12, face="bold"))+
+    theme(plot.title = element_text(lineheight=.8, face="bold", size=14))+theme_bw()
+
+g1
+
+ggsave(
+  "Plot1Exp2.png",
+  g1,
+  width = 9.25,
+  height = 6.25,
+  dpi = 300
+)
+
+    
+OnlySubjects$time2<-OnlySubjects$time-1800
+
+g2<-ggplot(OnlySubjects, aes(x=time2, y=Prob, color=`Interest Area`, shape=`Interest Area`)) +
+    geom_point(size=3) +
+    geom_errorbar(aes(ymin=LCI, ymax=UCI))+
+    scale_x_continuous(breaks=seq(0,1300,50), limits=c(0,1300), name="time from display onset(ms)")+
+    theme_bw()+
+    scale_fill_manual(values=cbPalette)+scale_colour_manual(values=cbPalette)+
+    scale_y_continuous(name="Fixation Proportion")+
+    theme(legend.text = element_text(size = 12))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(axis.title.x = element_text(face="bold", size=15), axis.text.x  = element_text(size=12, angle=90, vjust=0.5))+
+    theme(axis.title.y = element_text(face="bold", size=15), axis.text.y  = element_text(size=12))+
+    theme(plot.title = element_text(lineheight=.8, face="bold", size=14))+
+    theme(strip.text.x = element_text(size=12, face="bold"))
+
+g2
+
+#the plots shows some warnings because it removes values before display onset and after display onset
+
+ggsave(
+  "Plot2Exp2.png",
+  g2,
+  width = 9.25,
+  height = 6.25,
+  dpi = 300
+)
+```  
+    
+
+
+##**Growth Curve Analyses**
+The following analyses will examine
+1. the proportion fixations between the High and Low Competitor
+
+###*High vs. Low Competitor*
+First, the required subset is created:
+```{r}
+model<-CleanDataProb %>% 
+    filter(IA_LABEL=="CompetitorHigh " | IA_LABEL=="CompetitorLow ", time>=2200 & time <=3200)
+model$IA_LABEL<-as.factor(as.character(model$IA_LABEL))
+
+#Generate time polynomials up to quadratic poly.
+t25 <- data.frame(poly(unique(model$time),4))
+t25$time <- seq(2200, 3200, by=25)
+
+#add polynomials to data frame
+model <- merge(model , t25, by="time")
+head(model)
+str(model)
+```
+
+The following models are run, with increasing complexity:
+```{r LMERTargetVsComp,warning=FALSE, message=FALSE, cache=TRUE}
+registerDoParallel(3)
+#base model; Model1
+Model1<-lmer(Prob ~ IA_LABEL + 
+                 (1| Subject) + 
+                 (1| Subject:IA_LABEL),
+               data=model, REML=T)
+#linear; model 2
+Model2<-lmer(Prob ~ IA_LABEL*X1 + 
+                 (1+X1| Subject) + 
+                 (1+X1| Subject:IA_LABEL),
+               data=model, REML=T)
+#linea+quadratic; model 3
+Model3<-lmer(Prob ~ IA_LABEL*(X1+X2) + 
+                 (1+X1+X2| Subject) + 
+                 (1+X1+X2| Subject:IA_LABEL),
+               data=model, REML=T)
+#Model 4
+Model4<-lmer(Prob ~ IA_LABEL*(X1+X2+X3) + 
+                 (1+X1+X2+X3| Subject) + 
+                 (1+X1+X2+X3| Subject:IA_LABEL),
+               data=model, REML=T)
+#Model 5 failed to converge
+Model5<-lmer(Prob ~ IA_LABEL*(X1+X2+X3+X4) + 
+                 (1+X1+X2+X3+X4| Subject) + 
+                 (1+X1+X2+X3+X4| Subject:IA_LABEL),
+               data=model, REML=T)
+
+#compare the models based on ANOVA test
+anova(Model1,Model2,Model3,Model4,Model5)
+#compare the models based on R^2 based on a paper from Xu (http://onlinelibrary.wiley.com/doi/10.1002/sim.1572/abstract)
+1-var(residuals(Model1))/(var(model.response(model.frame(Model1))))
+1-var(residuals(Model2))/(var(model.response(model.frame(Model2))))
+1-var(residuals(Model3))/(var(model.response(model.frame(Model3))))
+1-var(residuals(Model4))/(var(model.response(model.frame(Model4))))
+1-var(residuals(Model5))/(var(model.response(model.frame(Model5))))
+
+
+#find the summary for model 4
+summary(Model5)
+#find the RMSE
+sqrt(mean((model$Prob-fitted(Model5))^2))
+
+#attach the fitted values to the dataset model, so that they can be used later for graphing purposes
+model$Model1Fitted<-fitted(Model1)
+model$Model2Fitted<-fitted(Model2)
+model$Model3Fitted<-fitted(Model3)
+model$Model4Fitted<-fitted(Model4)
+model$Model5Fitted<-fitted(Model5)
+
+
+#check that the values are in the dataset
+str(model)
+```
+
+Model 5 performs the best, though LMER is not very susceptible to corss-validation, so the addition of more polynomials might be leading to overfitting
+
+
+##**Graphs**
+Each model used above will be graphed by overlaying it on the real data. First, the plots for the first comparison will be created. For this, I use the model dataset. I put the data in long only format.
+
+```{r, cache=TRUE}
+ModelLong<- model %>% gather(Model,Predictions,9:13)
+#rename the models so that they are more clear
+levels(ModelLong$Model) <- list(`Model 1 Intercept`="Model1Fitted", `Model 2 Linear`="Model2Fitted", `Model 3 Quadratic`="Model3Fitted", `Model 4 Cubic`="Model4Fitted", `Model 5 Quartic`="Model5Fitted")
+
+#rename some of the colums
+colnames(ModelLong)[3]<-"Interest Area"
+ModelLong[,3]<-factor(ModelLong[,3])
+#compress the data(find the average over subjects)
+ForGraph1<-ModelLong %>% group_by(`Interest Area`,time, Model) %>%
+    summarise(`Fixation Probability`=mean(Prob),Predicted=mean(Predictions))
+
+levels(ForGraph1$`Interest Area`) <- list(`High Competitor`="CompetitorHigh ", `Low Competitor`="CompetitorLow ")
+```
+
+The code chunk below will plot and save the graph
+
+```{r, warning=FALSE, cache=TRUE}
+#color palette for color-blind
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+#create plot1 for Experiment 1, which goes in the publication
+g3<-ggplot(ForGraph1, aes(x=time-2200, y=`Fixation Probability`, shape=`Interest Area`, color=`Interest Area`)) +
+    geom_point(size=3) + geom_line(aes(y=Predicted), size=1)+facet_wrap(~Model, nrow=3, ncol=3)+
+    scale_fill_manual(values=cbPalette)+scale_colour_manual(values=cbPalette)+
+    ggtitle("Fixation Proportion for Models\n examining High vs. Low Competitors")+
+    theme_bw()+
+    scale_x_continuous(breaks=seq(0,1000,100), limits=c(0,1000), name="time 200ms after spoken word onset(ms)")+
+    theme(legend.text = element_text(size = 12))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(axis.title.x = element_text(face="bold", size=15), axis.text.x= element_text(size=12, angle=90, vjust=0.5))+
+    theme(axis.title.y = element_text(face="bold", size=15), axis.text.y  = element_text(size=12))+
+    theme(strip.text.x = element_text(size=12, face="bold"))+
+    theme(plot.title = element_text(lineheight=.8, face="bold", size=14))
+
+g3
+
+
+ggsave(
+  "Plot3Exp2.png",
+  g3,
+  width = 9.25,
+  height = 6.25,
+  dpi = 300
+)
+
+```
+
+
+Session Info
+```{r}
+sessionInfo()
+```
