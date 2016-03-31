@@ -1,6 +1,6 @@
 ---
 title: "Experiment 2 All 3"
-author: "Stas Sajin"
+author: "Stas Sajin and Julie Gregg"
 date: "Jan 19, 2016"
 output: html_document
 ---
@@ -252,7 +252,7 @@ plotExp1<-grid.arrange(tstat, distribution, nrow=1, ncol=2)
 grid.arrange(tstat, distribution, nrow=1, ncol=2)
 
 ggsave(
-  "HighvsLowCompExp1.png",
+  "HighvsLowCompExp2.png",
   plotExp1,
   width = 9.25,
   height = 6.25,

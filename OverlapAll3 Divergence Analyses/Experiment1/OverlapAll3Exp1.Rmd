@@ -1,6 +1,6 @@
 ---
 title: "Experiment 1 All 3"
-author: "Stas Sajin"
+author: "Stas Sajin and Julie Gregg"
 date: "March 27, 2016"
 output: html_document
 ---
@@ -247,7 +247,6 @@ clust_analysis <- analyze_time_clusters(df_timeclust, samples=10000, within_subj
 distribution<-plot(clust_analysis) + theme_light()
 
 plotExp1<-grid.arrange(tstat, distribution, nrow=1, ncol=2)
-grid.arrange(tstat, distribution, nrow=1, ncol=2)
 
 ggsave(
   "HighvsLowCompExp1.png",
