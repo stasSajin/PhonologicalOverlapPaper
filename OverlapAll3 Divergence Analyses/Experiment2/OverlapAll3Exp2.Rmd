@@ -164,10 +164,10 @@ CleanData<- CleanData %>% gather(time,value,6:246)
 ```{r}
 #change time into numeric
 CleanData$time<-as.numeric(CleanData$time)
-CleanDataSubset<-CleanData %>% filter(time>=1600 & time <=3200)
+CleanDataSubset<-CleanData %>% filter(time>=1825 & time <=3425)
 
 #change the tiem variable so that it starts at 0 (from display onset.
-CleanDataSubset$time<-CleanDataSubset$time-1600
+CleanDataSubset$time<-CleanDataSubset$time-1825
 
 #The code below aims to identify which time-ranges within trials have trackloss. The code will sum up the value column. If it is 0, this means that there was no fixation to any interest areas and the trial had trackloss, if it is 1, then there was a fixation to one of the interest areas. 
 library(plyr)
@@ -237,23 +237,71 @@ df_timeclust <- make_time_cluster_data(Filtered,
                                       test= "t.test", paired=TRUE,
                                       predictor_column = "AOI",
                                       threshold = -threshold_t) 
-tstat<-plot(df_timeclust) +  ylab("T-Statistic") + theme_light()
+
+tstat<-plot(df_timeclust) +
+    scale_x_continuous(breaks=seq(0,1500,100), limits=c(0,1500), name="time from spoken target onset(ms)")+
+    theme_bw()+
+    scale_y_continuous(name="t-Statistic")+
+    theme(legend.text = element_text(size = 12))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(axis.title.x = element_text(face="bold", size=15), axis.text.x  = element_text(size=12, angle=90, vjust=0.5))+
+    theme(axis.title.y = element_text(face="bold", size=15), axis.text.y  = element_text(size=12))+
+    theme(plot.title = element_text(lineheight=.8, face="bold", size=14))+
+    theme(strip.text.x = element_text(size=12, face="bold"))
+
+
+
 summary(df_timeclust)
 
 registerDoParallel(3)
 clust_analysis <- analyze_time_clusters(df_timeclust, samples=10000, within_subj=TRUE, paired=TRUE) #
-
-distribution<-plot(clust_analysis) + theme_light()
-
 ```
 
 ```{r}
-plotExp1<-grid.arrange(tstat, distribution, nrow=1, ncol=2)
-grid.arrange(tstat, distribution, nrow=1, ncol=2)
+#extract the clusters dataframe from the clust_analysis object
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+clusters<-clust_analysis$clusters
+clusters$Cluster<-as.factor(clusters$Cluster)
+#rename the clusters based on the order in whcih they appear
+levels(clusters$Cluster) <- list(`Cluster 1`="1", `Cluster 2`="2",
+                                 `Cluster 3`="3")
+
+
+#extract the t.sum values for the null distribution
+tsumValues<-as.data.frame(clust_analysis$null_distribution)
+names(tsumValues)[1]<-"tSums"
+
+distribution<-ggplot(data=tsumValues, aes(x=tSums)) + 
+    geom_histogram(aes(y=..density..),      
+                   binwidth=5,
+                   colour="black", fill="white") +
+    geom_density(alpha=.4, fill="grey")+
+    geom_vline(data=clusters, 
+               aes(xintercept=SumStatistic, linetype=Cluster, color=Cluster),
+               size=1)+
+    scale_colour_manual(values=cbPalette)+
+    theme_bw()+
+    theme(legend.text = element_text(size = 12))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(axis.title.x = element_text(face="bold", size=15), axis.text.x  = element_text(size=10))+
+    theme(axis.title.y = element_text(face="bold", size=15), axis.text.y  = element_text(size=10))+
+    theme(strip.text.x = element_text(size=12, face="bold"))+
+    theme(plot.title = element_text(lineheight=.8, face="bold", size=14))+
+    scale_y_continuous(limits=c(0,.20), expand = c(0, 0))+
+    theme(legend.position=c(.8,.8))+
+    scale_x_continuous(expand = c(0, 0))+  
+    scale_linetype_manual(values=c("solid","dotdash", "dotted"))
+
+
+
+plotExp2<-grid.arrange(tstat, distribution, nrow=1, ncol=2)
 
 ggsave(
   "HighvsLowCompExp2.png",
-  plotExp1,
+  plotExp2,
   width = 9.25,
   height = 6.25,
   dpi = 300
