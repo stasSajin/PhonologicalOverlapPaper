@@ -6,19 +6,23 @@ output: github_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-#Synopsis
-The aim of this document is to provide all the analyses for Experiment 1 Overlap all 3. In this experiment, participants were presented with displays of 4 words, among which were the target, a high phonological competitor, a low phonological competitor, and a distractor. The structure of the document will be as follows:
+
+# General Summary
+The aim of this document is to analyze the replication data for Experiment 1. The design of Experiment 1 is esentially the same as the one reported by Salverda & Tanenhaus. The only minor differences emerge from:
+
+1. Having more items (in the current experiment, we have expanded the item set)
+2. Having a fixation cross in the middle of the screen.
+
+
+The analysis is broken into several parts:
 
 1. Data Cleaning and Pre-processing
-
 2. Exploratory Analyses
-
 3. Growth Curve Analysis
-
 4. Graphs
 
 
-####*Libraries*
+#### Libraries
 Load the required libraries 
 ```{r, warning=FALSE, message=FALSE}
 library(ggplot2)
@@ -32,89 +36,66 @@ library(gridExtra)
 library(caret)
 ```
 
-####*Data Loading*
+#### Data Loading
 First, I load the data file indicating the trials that were removed for each subject.
 
 ```{r}
-deletedTrials<-read.csv("delete.csv")
+deletedTrials<-read.csv("E1delete.csv")
 ```
 
-Now I load up the csv files with Exp1 data. There are two files (Exp1Part1 and Exp1Part2). Not all colums in those files are required. Only the following colums will be loaded in R, so as to preserve memory space. The colums are: RECORDING_SESSION_LABEL, IA_FIRST_RUN_START_TIME, IA_FIRST_RUN_START_TIME, IA_FIRST_RUN_END_TIME, IA_SECOND_RUN_START_TIME, IA_SECOND_RUN_END_TIME, IA_THIRD_RUN_START_TIME, IA_THIRD_RUN_END_TIME, IA_LABEL, RESPONSE_ACC, IA_DWELL_TIME, TRIAL_INDEX, target, RESPONSE_RT,trialtype,target, list, oldnewitem
+Now I load up the csv files with Exp1 data. Not all colums in those files are. Only the following colums will be loaded in R. The colums are: RECORDING_SESSION_LABEL, IA_FIRST_RUN_START_TIME, IA_FIRST_RUN_START_TIME, IA_FIRST_RUN_END_TIME, IA_SECOND_RUN_START_TIME, IA_SECOND_RUN_END_TIME, IA_THIRD_RUN_START_TIME, IA_THIRD_RUN_END_TIME, IA_LABEL, RESPONSE_ACC, IA_DWELL_TIME, TRIAL_INDEX, target, RESPONSE_RT,trialtype,target, list, oldnewitem
 
 ```{r}
-Part1 <- read.csv("Exp1Part1.csv", na.strings = c("."))[,c('RECORDING_SESSION_LABEL', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_END_TIME', 'IA_SECOND_RUN_START_TIME', 'IA_SECOND_RUN_END_TIME', 'IA_THIRD_RUN_START_TIME', 'IA_THIRD_RUN_END_TIME', 'IA_LABEL', 'RESPONSE_ACC', 'IA_DWELL_TIME', 'TRIAL_INDEX', 'target', 'RESPONSE_RT', 'trialtype','oldnewitem', 'MOUSE_TIME','DISPLAY_TIME')]
-
-#now load up part 2
-Part2 <- read.csv("Exp1Part2.csv", na.strings = c("."))[,c('RECORDING_SESSION_LABEL', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_END_TIME', 'IA_SECOND_RUN_START_TIME', 'IA_SECOND_RUN_END_TIME', 'IA_THIRD_RUN_START_TIME', 'IA_THIRD_RUN_END_TIME', 'IA_LABEL', 'RESPONSE_ACC', 'IA_DWELL_TIME', 'TRIAL_INDEX', 'target', 'RESPONSE_RT', 'trialtype','oldnewitem', 'MOUSE_TIME','DISPLAY_TIME')]
-
-#combine part 1 and part 2 into one dataframe
-EyeData<-rbind(Part1, Part2)
+eye_data <- read.csv("E1data.csv", na.strings = c("."))[,c('RECORDING_SESSION_LABEL', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_END_TIME', 'IA_SECOND_RUN_START_TIME', 'IA_SECOND_RUN_END_TIME', 'IA_THIRD_RUN_START_TIME', 'IA_THIRD_RUN_END_TIME', 'IA_LABEL', 'RESPONSE_ACC', 'IA_DWELL_TIME', 'TRIAL_INDEX', 'target', 'RESPONSE_RT', 'trialtype','oldnewitem', 'MOUSE_TIME','DISPLAY_TIME', 'item', 'prac', 'word', 'compoverlap', 'targetduration', 'list')]
 ```
 
-#*Data Cleaning and Pre-Processing*
+# Data Cleaning and Pre-Processing
 
-Right now we have a dataset with all the subjects that took part in Experiment 1. In the code below, I perform some preprocessing that aims to do the following: Remove bad trials (e.g., trials with a lot of off-screen fixations or trials in which the fixations don't start at the center of the screen or trials in which the tracking of the eye was not very good. The decision about which trials should be removed was done by two graduate students, Stas and Julie.) The deleted trials can be found in the deletedTrials file. 
+Right now we have a dataset with all the subjects that took part in Experiment 1. In the code below, I perform some preprocessing that aims to do the following: Remove bad trials (e.g., trials with a lot of off-screen fixations or trials in which the fixations don't start at the center of the screen or trials in which the tracking of the eye was not very good. The deleted trials can be found in the E1delete.csv. Overall, we remove only 1 trial from Experiment 1, which represents minimal loss and have no affect on the outcome of analyses.
 
 ```{r}
 #this part of the code is not very effective; need to figure out later how to optimize it.
-EyeData<-EyeData[!c(EyeData$RECORDING_SESSION_LABEL=="1sse1" & EyeData$TRIAL_INDEX==50),]
-EyeData<-EyeData[!c(EyeData$RECORDING_SESSION_LABEL=="12spe1" & EyeData$TRIAL_INDEX==73),]
-EyeData<-EyeData[!c(EyeData$RECORDING_SESSION_LABEL=="7spe1" & EyeData$TRIAL_INDEX==38),]
-EyeData<-EyeData[!c(EyeData$RECORDING_SESSION_LABEL=="4tle1" & EyeData$TRIAL_INDEX==53),]
-EyeData<-EyeData[!c(EyeData$RECORDING_SESSION_LABEL=="9spe1" & EyeData$TRIAL_INDEX==87),]
-EyeData<-EyeData[!c(EyeData$RECORDING_SESSION_LABEL=="11spe2" & EyeData$TRIAL_INDEX==11),]
-24/10880
+eye_data<-eye_data[!c(eye_data$RECORDING_SESSION_LABEL=="2sre1l1" & eye_data$TRIAL_INDEX==89),]
 ```
 
-Only 6 trials have been deleted, which constitutes less than .22% of the total number of trials. 
-
-In the code below, I transform the NAs to zero, calculate the RT from the onset of the word display till the mouse click time is made.
+In the code below, I transform the NAs to zero (since NA represents absence of a fixation), calculate the RT from the onset of the word display till the mouse click time is made.
 
 ```{r}
-
 #change all the NAs to zeros
-EyeData[is.na(EyeData)] <- 0
+eye_data[is.na(eye_data)] <- 0
 #Calculate RT from the display onset until the mouse click is made
-EyeData$RESPONSE_RT<-EyeData$MOUSE_TIME-EyeData$DISPLAY_TIME
+eye_data$RESPONSE_RT<-eye_data$MOUSE_TIME-eye_data$DISPLAY_TIME
 #check the dimentions of the dataset
-dim(EyeData)
+dim(eye_data)
 #remove the MOUSE_TIME and DISPLAY_TIME variables
-EyeData<-EyeData %>% select (1:16)
+eye_data<-eye_data %>% select (-c(MOUSE_TIME, DISPLAY_TIME))
 
 #rename the RECORDING_SESSION_LABEL into Subject
-colnames(EyeData)[1] <- "Subject"
+colnames(eye_data)[1] <- "Subject"
 #examine colum names
-names(EyeData)
+names(eye_data)
 ```
 
-
-Examine the structure of the dataframe
-```{r}
-str(EyeData)
-```
 
 Subset the experimental trials. This will remove all other trialtypes, such as FillerRel, FillerUnrel and Practice trials
 ```{r}
-EyeData <- EyeData %>% filter(trialtype=="Exp")
+eye_data <- eye_data %>% filter(trialtype=="Exp")
 ```
 
-Check subject accuracy
+Check subject accuracy; Subject accuracy is 99.84%
 ```{r}
-SubjectAccuracy<- EyeData %>% group_by(Subject) %>%
+SubjectAccuracy<- eye_data %>% group_by(Subject) %>%
     summarise(MeanAccuracy=mean(RESPONSE_ACC)) %>% 
     arrange(MeanAccuracy)
 SubjectAccuracy
 mean(SubjectAccuracy$MeanAccuracy)
 ```
 
-Subject accuracy is very high. Allmost all the subjects have 100% accuracy. Only 5 participants have a few incorrect trials.
-
-Remove trials with incorrect accuracy
+Remove incorrect trials
 ```{r}
-CorrectEyeData<-EyeData %>% filter(RESPONSE_ACC==1)
+CorrectEyeData<-eye_data %>% filter(RESPONSE_ACC==1)
 #number of rows deleted
-nrow(EyeData)-nrow(CorrectEyeData) #20 rows get deleted, which corresponds to 5 incorrect trials
-20/3468 #thats about .5767% of experimental trials
+nrow(eye_data)-nrow(CorrectEyeData) # 4 rows corresponds to 1 trial
 ```
 
 Set up the start time and the end time dummy-coding of each run in the interest area. This creates colums where if a fixation exists during a run, then the run gets 1 (exists) or if there is no fixation in the IA during a run, then the coding is 0 (not exist)
@@ -138,7 +119,6 @@ Generate time vectors for each row and column for first, second, and third pass 
 so that viewing periods receive a viewing probability value of 1 
 
 ```{r, warning=FALSE, cache=TRUE}
-registerDoParallel(3)
 for(i in 1:nrow(tmatrix)) {
 for(j in 1:length(time)) {
 
@@ -160,7 +140,7 @@ Assign time values to time bin columns
 colnames(CleanData)[23:263] <- seq(0, 6000, by=25)
 ```
 
-Subset the dataset with only the necessary colums and remove anything in the memory that might be a memory hog
+Subset the dataset with only the necessary colums
 ```{r}
 CleanData <- CleanData[, -c(2:8,10,11,12,13,14, 17:22)]
 ```
@@ -188,7 +168,7 @@ OnlySubjects<-CleanData %>%
     mutate(se=sd/sqrt(n), LCI=Prob+qnorm(0.025)*se, UCI=Prob+qnorm(0.975)*se)
 OnlySubjects$time<-as.numeric(as.character(OnlySubjects$time))
 
-levels(OnlySubjects$IA_LABEL) <- list(Target="TARGET_IA ", `High Competitor`="CompetitorHigh ", `Low Competitor`="CompetitorLow ", `Distractor`="UNREL2_IA ")
+levels(OnlySubjects$IA_LABEL) <- list(Target="TARGET_IA", `Competitor`="COMPET_IA", `Distractor2`="UNREL1_IA", `Distractor1`="UNREL2_IA")
 
 colnames(OnlySubjects)[1]<-"Interest Area"
 ```
