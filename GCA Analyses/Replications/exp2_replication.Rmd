@@ -1,0 +1,563 @@
+---
+title: "Exp 2: Replications for Salverda & Tanenhaus (2009)"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# General Summary
+The aim of this document is to analyze the replication data for Experiment 2. The design of Experiment 2 is esentially the same as the one reported by Salverda & Tanenhaus. The only minor differences emerge from:
+
+1. Having more items (in the current experiment, we have expanded the item set)
+2. Having a fixation cross in the middle of the screen.
+
+
+The analysis is broken into several parts:
+
+1. Data Cleaning and Pre-processing
+2. Exploratory Analyses
+3. Growth Curve Analysis
+4. Graphs
+
+
+#### Libraries
+Load the required libraries 
+```{r, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(dplyr)
+library(parallel)
+library(doParallel)
+library(tidyr)
+library(gridExtra)
+library(caret)
+```
+
+#### Data Loading
+First, I load the data file indicating the trials that were removed for each subject.
+
+```{r}
+deletedTrials<-read.csv("E2delete.csv")
+```
+
+Now I load up the csv files with Exp1 data. Not all colums in those files are. Only the following colums will be loaded in R. The colums are: RECORDING_SESSION_LABEL, IA_FIRST_RUN_START_TIME, IA_FIRST_RUN_START_TIME, IA_FIRST_RUN_END_TIME, IA_SECOND_RUN_START_TIME, IA_SECOND_RUN_END_TIME, IA_THIRD_RUN_START_TIME, IA_THIRD_RUN_END_TIME, IA_LABEL, RESPONSE_ACC, IA_DWELL_TIME, TRIAL_INDEX, target, RESPONSE_RT,trialtype,target, list, oldnewitem
+
+```{r}
+eye_data <- read.csv("E2data.csv", na.strings = c("."))[,c('RECORDING_SESSION_LABEL', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_START_TIME', 'IA_FIRST_RUN_END_TIME', 'IA_SECOND_RUN_START_TIME', 'IA_SECOND_RUN_END_TIME', 'IA_THIRD_RUN_START_TIME', 'IA_THIRD_RUN_END_TIME', 'IA_LABEL', 'RESPONSE_ACC', 'IA_DWELL_TIME', 'TRIAL_INDEX', 'target', 'RESPONSE_RT', 'trialtype','oldnewitem', 'MOUSE_TIME','DISPLAY_TIME', 'item', 'prac', 'word', 'compoverlap', 'targetduration', 'list')]
+```
+
+# Data Cleaning and Pre-Processing
+
+Right now we have a dataset with all the subjects that took part in Experiment 1. In the code below, I perform some preprocessing that aims to do the following: Remove bad trials (e.g., trials with a lot of off-screen fixations or trials in which the fixations don't start at the center of the screen or trials in which the tracking of the eye was not very good. The deleted trials can be found in the E1delete.csv. Overall, we remove only 1 trial from Experiment 1, which represents minimal loss and have no affect on the outcome of analyses.
+
+```{r}
+#this part of the code is not very effective; need to figure out later how to optimize it.
+eye_data<-eye_data[!c(eye_data$RECORDING_SESSION_LABEL=="2tle2l1" & eye_data$TRIAL_INDEX==2),]
+```
+
+In the code below, I transform the NAs to zero (since NA represents absence of a fixation), calculate the RT from the onset of the word display till the mouse click time is made.
+
+```{r}
+#change all the NAs to zeros
+eye_data[is.na(eye_data)] <- 0
+#Calculate RT from the display onset until the mouse click is made
+eye_data$RESPONSE_RT<-eye_data$MOUSE_TIME-eye_data$DISPLAY_TIME
+#check the dimentions of the dataset
+dim(eye_data)
+#remove the MOUSE_TIME and DISPLAY_TIME variables
+eye_data<-eye_data %>% select (-c(MOUSE_TIME, DISPLAY_TIME))
+
+#rename the RECORDING_SESSION_LABEL into Subject
+colnames(eye_data)[1] <- "Subject"
+#examine colum names
+names(eye_data)
+```
+
+
+Subset the experimental trials. This will remove all other trialtypes, such as FillerRel, FillerUnrel and Practice trials
+```{r}
+eye_data <- eye_data %>% filter(trialtype=="Exp")
+```
+
+Check subject accuracy; Subject accuracy is 99.82%
+```{r}
+SubjectAccuracy<- eye_data %>% group_by(Subject) %>%
+    summarise(MeanAccuracy=mean(RESPONSE_ACC)) %>% 
+    arrange(MeanAccuracy)
+SubjectAccuracy
+mean(SubjectAccuracy$MeanAccuracy)
+```
+
+Remove incorrect trials
+```{r}
+CorrectEyeData<-eye_data %>% filter(RESPONSE_ACC==1)
+#number of rows deleted
+nrow(eye_data)-nrow(CorrectEyeData) # 4 rows corresponds to 1 trial
+```
+
+Set up the start time and the end time dummy-coding of each run in the interest area. This creates colums where if a fixation exists during a run, then the run gets 1 (exists) or if there is no fixation in the IA during a run, then the coding is 0 (not exist)
+```{r}
+CorrectEyeData$Fststart <- ifelse(as.numeric(as.character(CorrectEyeData$IA_FIRST_RUN_START_TIME)) > 0, as.numeric(as.character(CorrectEyeData$IA_FIRST_RUN_START_TIME)), 0) 
+CorrectEyeData$Fstend <- ifelse(as.numeric(as.character(CorrectEyeData$IA_FIRST_RUN_START_TIME)) > 0, as.numeric(as.character(CorrectEyeData$IA_FIRST_RUN_END_TIME)), 0)
+CorrectEyeData$Secstart <- ifelse(as.numeric(as.character(CorrectEyeData$IA_SECOND_RUN_START_TIME)) > 0, as.numeric(as.character(CorrectEyeData$IA_SECOND_RUN_START_TIME)), 0)
+CorrectEyeData$Secend <- ifelse(as.numeric(as.character(CorrectEyeData$IA_SECOND_RUN_START_TIME)) > 0, as.numeric(as.character(CorrectEyeData$IA_SECOND_RUN_END_TIME)), 0)
+CorrectEyeData$Thirdstart <- ifelse(as.numeric(as.character(CorrectEyeData$IA_THIRD_RUN_START_TIME)) > 0, as.numeric(as.character(CorrectEyeData$IA_THIRD_RUN_START_TIME)), 0)
+CorrectEyeData$Thirdend <- ifelse(as.numeric(as.character(CorrectEyeData$IA_THIRD_RUN_START_TIME)) > 0, as.numeric(as.character(CorrectEyeData$IA_THIRD_RUN_END_TIME)), 0)
+```
+
+Generate time bins from time 0 to time 6000 in 25 ms bins and assign them to the dataset
+```{r}
+time <- seq(0, 6000, by=25)
+tmatrix <- matrix(nrow=nrow(CorrectEyeData), ncol=length(time))
+dim(tmatrix)
+```
+
+Generate time vectors for each row and column for first, second, and third pass viewings 
+so that viewing periods receive a viewing probability value of 1 
+
+```{r, warning=FALSE, cache=TRUE}
+for(i in 1:nrow(tmatrix)) {
+for(j in 1:length(time)) {
+
+tmatrix[i,j] <-  ifelse(CorrectEyeData$Fststart[i] < time[j] & 
+                CorrectEyeData$Fstend[i] > time[j] |CorrectEyeData$Secstart[i] <
+                time[j] & CorrectEyeData$Secend[i] > time[j] | CorrectEyeData$Thirdstart[i] 
+                < time[j] & CorrectEyeData$Thirdend[i]>time[j], 1,0)
+} 
+}
+```
+
+Combine the CleanEyeData with the time matrix
+```{r}
+CleanData <- cbind(CorrectEyeData, data.frame(tmatrix))
+```
+
+Assign time values to time bin columns
+```{r}
+colnames(CleanData)[29:269] <- seq(0, 6000, by=25)
+```
+
+Subset the dataset with only the necessary colums
+```{r}
+CleanData <- CleanData[, -c(2:8,10,11,12,13,14,15,17,18,19, 23:28)]
+
+CleanData <- CleanData %>% 
+  select(-c(targetduration, list))
+```
+
+Put the data in long-format and then calculate the proportion for each time bin for each subject
+```{r}
+CleanData<- CleanData %>% gather(time,value,5:245)
+#find proportion for each interest area for each subject and group
+CleanDataProb<-CleanData %>% group_by(Subject,IA_LABEL,compoverlap,time) %>%
+    summarise(Prob=mean(value))
+CleanDataProb$time<-as.numeric(as.character(CleanDataProb$time))
+```
+
+
+##**Exploratory Graphs**
+The aim of this section is to explore pattern in the data without commiting to any formal modeling. 
+
+which Competitor is the stronger one?
+
+```{r}
+#subset the required dataset by averaging over subjects; find the usual
+OnlySubjects<-CleanData %>%
+    group_by(IA_LABEL,compoverlap, time) %>%
+    summarise(n=n(),Prob=mean(value),sd=sd(value)) %>%
+    mutate(se=sd/sqrt(n), LCI=Prob+qnorm(0.025)*se, UCI=Prob+qnorm(0.975)*se,
+           # cap the lower ci at 0
+           LCI = ifelse(LCI<0, 0, LCI)) 
+OnlySubjects$time<-as.numeric(as.character(OnlySubjects$time))
+
+levels(OnlySubjects$IA_LABEL) <- list(Target="TARGET_IA ", `Competitor`="COMPET_IA ", `Distractor1`="UNREL1_IA ", `Distractor2`="UNREL2_IA ")
+
+colnames(OnlySubjects)[1]<-"Interest Area"
+```
+
+```{r, warning=FALSE, message=FALSE, cache=TRUE}
+#plot for time 0 to time 6000
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+g1<-ggplot(OnlySubjects, aes(x=time, y=Prob, color=`Interest Area`, shape=compoverlap)) +
+    geom_point(size=3) +
+    geom_errorbar(aes(ymin=LCI, ymax=UCI)) +
+    scale_x_continuous(breaks=seq(0,6000,500), limits=c(0,6000), name="time from trial onset (ms)")+
+    geom_vline(xintercept = 1825)+
+    geom_vline(xintercept = 3425)+theme_bw()+
+    scale_fill_manual(values=cbPalette)+scale_colour_manual(values=cbPalette)+
+    scale_y_continuous(name="Fixation Proportion")+
+    theme(legend.text = element_text(size = 12))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(axis.title.x = element_text(face="bold", size=15), axis.text.x  = element_text(size=10))+
+    theme(axis.title.y = element_text(face="bold", size=15), axis.text.y  = element_text(size=10))+
+    theme(strip.text.x = element_text(size=12, face="bold"))+
+    theme(plot.title = element_text(lineheight=.8, face="bold", size=14))+theme_bw()
+
+g1
+
+ggsave(
+  "Plot1Exp2.png",
+  g1,
+  width = 9.25,
+  height = 6.25,
+  dpi = 300
+)
+
+
+    
+OnlySubjects$time2<-OnlySubjects$time-1825
+
+g2<-ggplot(OnlySubjects, aes(x=time2, y=Prob, color=`Interest Area`, shape=compoverlap)) +
+    geom_point(size=3) +
+    geom_errorbar(aes(ymin=LCI, ymax=UCI))+
+    scale_x_continuous(breaks=seq(0,1500,50), limits=c(0,1500), name="time from spoken target onset(ms)")+
+    theme_bw()+
+    scale_fill_manual(values=cbPalette)+scale_colour_manual(values=cbPalette)+
+    scale_y_continuous(name="Fixation Proportion")+
+    theme(legend.text = element_text(size = 12))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(axis.title.x = element_text(face="bold", size=15), axis.text.x  = element_text(size=12, angle=90, vjust=0.5))+
+    theme(axis.title.y = element_text(face="bold", size=15), axis.text.y  = element_text(size=12))+
+    theme(plot.title = element_text(lineheight=.8, face="bold", size=14))+
+    theme(strip.text.x = element_text(size=12, face="bold"))
+
+g2
+
+#the plots shows some warnings because it removes values before display onset and after display onset
+
+ggsave(
+  "Plot2Exp2.png",
+  g2,
+  width = 9.25,
+  height = 6.25,
+  dpi = 300
+)
+```  
+    
+
+
+##**Growth Curve Analyses**
+The following analyses will examine:
+
+1. Target fixations for high vs low competitor overlap conditions. We expect that target int he presence of a high overlap competitor will show fewer fixations.
+2. Competitor fixations for the high vs low overlap conditions. We expect that competitors in the higher overlap conditions will show more fixations.
+
+
+### *High vs. Low Targets*
+First, the required subset is created:
+```{r}
+model<-CleanDataProb %>% 
+    filter(IA_LABEL=="TARGET_IA " & time>=2025 & time <=3025)
+model$IA_LABEL<-as.factor(as.character(model$IA_LABEL))
+
+#Generate time polynomials up to quadratic poly.
+t25 <- data.frame(poly(unique(model$time),4))
+t25$time <- seq(2025, 3025, by=25)
+
+# 
+
+#add polynomials to data frame
+model <- merge(model , t25, by="time")
+head(model)
+str(model)
+```
+
+The following models are run, with increasing complexity:
+```{r LMERTargetVsComp,warning=FALSE, message=FALSE, cache=TRUE}
+registerDoParallel(3)
+#base model; Model1
+Model1<-lmer(Prob ~ compoverlap + 
+                 (1| Subject) + 
+                 (1| Subject:compoverlap),
+               data=model, REML=T)
+#linear; model 2
+Model2<-lmer(Prob ~ compoverlap*X1 + 
+                 (1+X1| Subject) + 
+                 (1+X1| Subject:compoverlap),
+               data=model, REML=T)
+#linea+quadratic; model 3
+Model3<-lmer(Prob ~ compoverlap*(X1+X2) + 
+                 (1+X1+X2| Subject) + 
+                 (1+X1+X2| Subject:compoverlap),
+               data=model, REML=T)
+#Model 4
+Model4<-lmer(Prob ~ compoverlap*(X1+X2+X3) + 
+                 (1+X1+X2+X3| Subject) + 
+                 (1+X1+X2+X3| Subject:compoverlap),
+               data=model, REML=T)
+#Model 5 
+Model5<-lmer(Prob ~ compoverlap*(X1+X2+X3+X4) + 
+                 (1+X1+X2+X3+X4| Subject) + 
+                 (1+X1+X2+X3+X4| Subject:compoverlap),
+               data=model, REML=T)
+#Model 6 failed to converge
+Model6<-lmer(Prob ~ compoverlap*(X1+X2+X3+X4) + 
+                 (1+X1+X2+X3| Subject) + 
+                 (1+X1+X2+X3+X4| Subject:compoverlap),
+               data=model, REML=T)
+#Model 7 converged
+Model7<-lmer(Prob ~ compoverlap*(X1+X2+X3+X4) + 
+                 (1+X1+X2+X3+X4| Subject) + 
+                 (1+X1+X2+X3| Subject:compoverlap),
+               data=model, REML=T)
+
+library(beepr)
+beep(8)
+
+#compare the models based on ANOVA test
+anova(Model1,Model2,Model3,Model4,Model5,Model6,Model7)
+#compare the models based on R^2; see paper from Xu (http://onlinelibrary.wiley.com/doi/10.1002/sim.1572/abstract)
+1-var(residuals(Model1))/(var(model.response(model.frame(Model1))))
+1-var(residuals(Model2))/(var(model.response(model.frame(Model2))))
+1-var(residuals(Model3))/(var(model.response(model.frame(Model3))))
+1-var(residuals(Model4))/(var(model.response(model.frame(Model4))))
+1-var(residuals(Model5))/(var(model.response(model.frame(Model5))))
+1-var(residuals(Model6))/(var(model.response(model.frame(Model6))))
+1-var(residuals(Model7))/(var(model.response(model.frame(Model7))))
+
+
+#it seems like model 5 provides the best tradeoff in complexity and model fit
+#find the summary for model 5
+summary(Model5)
+
+#find summary for model 6
+summary(Model6)
+
+#find summary for model 7
+summary(Model7)
+
+#find the RMSE
+sqrt(mean((model$Prob-fitted(Model5))^2))
+
+#attach the fitted values to the dataset model, so that they can be used later for graphing purposes
+model$Model1Fitted<-fitted(Model1)
+model$Model2Fitted<-fitted(Model2)
+model$Model3Fitted<-fitted(Model3)
+model$Model4Fitted<-fitted(Model4)
+model$Model5Fitted<-fitted(Model5)
+model$Model6Fitted<-fitted(Model6)
+model$Model7Fitted<-fitted(Model7)
+
+#check that the values are in the dataset
+str(model)
+```
+
+Model 5 performs the best on AIC values. I suspect that there some amount of overfitting with those polynomial, so it is better to rely on permutation tests.
+
+
+##**Graphs**
+Each model used above will be graphed by overlaying it on the real data. First, the plots for the first comparison will be created. For this, I use the model dataset. I put the data in long only format.
+
+```{r, cache=TRUE}
+ModelLong<- model %>% gather(Model,Predictions,10:16)
+#rename the models so that they are more clear
+levels(ModelLong$Model) <- list(`Model 1 Intercept`="Model1Fitted", `Model 2 Linear`="Model2Fitted", `Model 3 Quadratic`="Model3Fitted", `Model 4 Cubic`="Model4Fitted", `Model 5 Quartic (not converged)`="Model5Fitted", `Model 6 Quartic (not converged)`="Model6Fitted", `Model 7 Quartic`="Model7Fitted")
+
+#rename some of the colums
+colnames(ModelLong)[4]<-"Overlap Condition"
+ModelLong[,4]<-factor(ModelLong[,4])
+#compress the data(find the average over subjects)
+ForGraph1<-ModelLong %>% group_by(`Overlap Condition`,time, Model) %>%
+    summarise(`Fixation Probability`=mean(Prob),Predicted=mean(Predictions))
+```
+
+The code chunk below will plot and save the graph
+
+```{r, warning=FALSE, cache=TRUE}
+#color palette for color-blind
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+#create plot1 for Experiment 1, which goes in the publication
+
+g3<-ggplot(ForGraph1, aes(x=time-2025, y=`Fixation Probability`, shape=`Overlap Condition`, color=`Overlap Condition`)) +
+    geom_point(size=3) + geom_line(aes(y=Predicted), size=1)+facet_wrap(~Model, nrow=3, ncol=3)+
+    scale_fill_manual(values=cbPalette)+scale_colour_manual(values=cbPalette)+
+    ggtitle("Fixation Proportion for Models examining Targets across High vs. Low Overlap Conditions")+
+    theme_bw()+
+    scale_x_continuous(breaks=seq(0,1000,100), limits=c(0,1000), name="time 200ms after spoken word onset(ms)")+
+    theme(legend.text = element_text(size = 12))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(axis.title.x = element_text(face="bold", size=15), axis.text.x= element_text(size=12, angle=90, vjust=0.5))+
+    theme(axis.title.y = element_text(face="bold", size=15), axis.text.y  = element_text(size=12))+
+    theme(strip.text.x = element_text(size=12, face="bold"))+
+    theme(plot.title = element_text(lineheight=.8, face="bold", size=14))
+
+g3
+
+ggsave(
+  "Plot3Exp2.png",
+  g3,
+  width = 9.25,
+  height = 6.25,
+  dpi = 300
+)
+```
+
+
+### *High vs. Low Competitors*
+First, the required subset is created:
+```{r}
+model<-CleanDataProb %>% 
+    filter(IA_LABEL=="COMPET_IA " & time>=2025 & time <=3025)
+model$IA_LABEL<-as.factor(as.character(model$IA_LABEL))
+
+#Generate time polynomials up to quadratic poly.
+t25 <- data.frame(poly(unique(model$time),4))
+t25$time <- seq(2025, 3025, by=25)
+
+# 
+
+#add polynomials to data frame
+model <- merge(model , t25, by="time")
+head(model)
+str(model)
+```
+
+The following models are run, with increasing complexity:
+```{r LMERCompVsComp,warning=FALSE, message=FALSE, cache=TRUE}
+registerDoParallel(3)
+#base model; Model1
+Model1<-lmer(Prob ~ compoverlap + 
+                 (1| Subject) + 
+                 (1| Subject:compoverlap),
+               data=model, REML=T)
+#linear; model 2
+Model2<-lmer(Prob ~ compoverlap*X1 + 
+                 (1+X1| Subject) + 
+                 (1+X1| Subject:compoverlap),
+               data=model, REML=T)
+#linea+quadratic; model 3
+Model3<-lmer(Prob ~ compoverlap*(X1+X2) + 
+                 (1+X1+X2| Subject) + 
+                 (1+X1+X2| Subject:compoverlap),
+               data=model, REML=T)
+#Model 4
+Model4<-lmer(Prob ~ compoverlap*(X1+X2+X3) + 
+                 (1+X1+X2+X3| Subject) + 
+                 (1+X1+X2+X3| Subject:compoverlap),
+               data=model, REML=T)
+#Model 5 
+Model5<-lmer(Prob ~ compoverlap*(X1+X2+X3+X4) + 
+                 (1+X1+X2+X3+X4| Subject) + 
+                 (1+X1+X2+X3+X4| Subject:compoverlap),
+               data=model, REML=T)
+#Model 6 failed to converge
+Model6<-lmer(Prob ~ compoverlap*(X1+X2+X3+X4) + 
+                 (1+X1+X2+X3| Subject) + 
+                 (1+X1+X2+X3+X4| Subject:compoverlap),
+               data=model, REML=T)
+#Model 7 converged
+Model7<-lmer(Prob ~ compoverlap*(X1+X2+X3+X4) + 
+                 (1+X1+X2+X3+X4| Subject) + 
+                 (1+X1+X2+X3| Subject:compoverlap),
+               data=model, REML=T)
+
+library(beepr)
+beep(8)
+
+#compare the models based on ANOVA test
+anova(Model1,Model2,Model3,Model4,Model5,Model6,Model7)
+#compare the models based on R^2; see paper from Xu (http://onlinelibrary.wiley.com/doi/10.1002/sim.1572/abstract)
+1-var(residuals(Model1))/(var(model.response(model.frame(Model1))))
+1-var(residuals(Model2))/(var(model.response(model.frame(Model2))))
+1-var(residuals(Model3))/(var(model.response(model.frame(Model3))))
+1-var(residuals(Model4))/(var(model.response(model.frame(Model4))))
+1-var(residuals(Model5))/(var(model.response(model.frame(Model5))))
+1-var(residuals(Model6))/(var(model.response(model.frame(Model6))))
+1-var(residuals(Model7))/(var(model.response(model.frame(Model7))))
+
+
+#it seems like model 5 provides the best tradeoff in complexity and model fit
+#find the summary for model 5
+
+#find summary for model 6
+summary(Model6)
+
+#find summary for model 7
+summary(Model7)
+
+#find the RMSE
+sqrt(mean((model$Prob-fitted(Model5))^2))
+
+#attach the fitted values to the dataset model, so that they can be used later for graphing purposes
+model$Model1Fitted<-fitted(Model1)
+model$Model2Fitted<-fitted(Model2)
+model$Model3Fitted<-fitted(Model3)
+model$Model4Fitted<-fitted(Model4)
+model$Model5Fitted<-fitted(Model5)
+model$Model6Fitted<-fitted(Model6)
+model$Model7Fitted<-fitted(Model7)
+
+#check that the values are in the dataset
+str(model)
+```
+
+Models 6-7 show similar performance. There is quite a bit of overfitting going on. 
+
+
+##**Graphs**
+Each model used above will be graphed by overlaying it on the real data. First, the plots for the first comparison will be created. For this, I use the model dataset. I put the data in long only format.
+
+```{r, cache=TRUE}
+ModelLong<- model %>% gather(Model,Predictions,10:16)
+#rename the models so that they are more clear
+levels(ModelLong$Model) <- list(`Model 1 Intercept`="Model1Fitted", `Model 2 Linear`="Model2Fitted", `Model 3 Quadratic`="Model3Fitted", `Model 4 Cubic`="Model4Fitted", `Model 5 Quartic (not converged)`="Model5Fitted", `Model 6 Quartic (not converged)`="Model6Fitted", `Model 7 Quartic`="Model7Fitted")
+
+#rename some of the colums
+colnames(ModelLong)[4]<-"Overlap Condition"
+ModelLong[,4]<-factor(ModelLong[,4])
+#compress the data(find the average over subjects)
+ForGraph1<-ModelLong %>% group_by(`Overlap Condition`,time, Model) %>%
+    summarise(`Fixation Probability`=mean(Prob),Predicted=mean(Predictions))
+```
+
+The code chunk below will plot and save the graph
+
+```{r, warning=FALSE, cache=TRUE}
+#color palette for color-blind
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+#create plot1 for Experiment 1, which goes in the publication
+
+g3<-ggplot(ForGraph1, aes(x=time-2025, y=`Fixation Probability`, shape=`Overlap Condition`, color=`Overlap Condition`)) +
+    geom_point(size=3) + geom_line(aes(y=Predicted), size=1)+facet_wrap(~Model, nrow=3, ncol=3)+
+    scale_fill_manual(values=cbPalette)+scale_colour_manual(values=cbPalette)+
+    ggtitle("Fixation Proportion for Models examining Competitors across High vs. Low Overlap Conditions")+
+    theme_bw()+
+    scale_x_continuous(breaks=seq(0,1000,100), limits=c(0,1000), name="time 200ms after spoken word onset(ms)")+
+    theme(legend.text = element_text(size = 12))+
+    theme(legend.title = element_text(size=12, face="bold"))+
+    theme(axis.title.x = element_text(face="bold", size=15), axis.text.x= element_text(size=12, angle=90, vjust=0.5))+
+    theme(axis.title.y = element_text(face="bold", size=15), axis.text.y  = element_text(size=12))+
+    theme(strip.text.x = element_text(size=12, face="bold"))+
+    theme(plot.title = element_text(lineheight=.8, face="bold", size=14))
+
+g3
+
+ggsave(
+  "Plot4Exp2.png",
+  g3,
+  width = 9.25,
+  height = 6.25,
+  dpi = 300
+)
+```
+
+
+
+
+
+
+
+
+
+
+Session Info
+```{r}
+library(beepr)
+beep(8)
+sessionInfo()
+```
