@@ -1,5 +1,5 @@
 ---
-title: "Exp1: Replications for Salverda & Tanenhaus (2009)"
+title: "Exp 2: Replications for Salverda & Tanenhaus (2009)"
 output: github_document
 ---
 
