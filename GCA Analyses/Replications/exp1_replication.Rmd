@@ -497,7 +497,7 @@ model$Model7Fitted<-fitted(Model7)
 str(model)
 ```
 
-Model 5 performs the best on AIC values. I suspect that there some amount of overfitting with those polynomial, so it is better to rely on permutation tests.
+Models 5-7 perform pretyt much the same way. There is quite a bit of overfitting going on. 
 
 
 ##**Graphs**
@@ -539,7 +539,7 @@ g3<-ggplot(ForGraph1, aes(x=time-2025, y=`Fixation Probability`, shape=`Overlap 
 g3
 
 ggsave(
-  "Plot3Exp1.png",
+  "Plot4Exp1.png",
   g3,
   width = 9.25,
   height = 6.25,
